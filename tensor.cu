@@ -14,7 +14,7 @@ public:
     T* data;
     char* device;
     std::vector<int>shape;
-    int size = 1;
+    int size = 1; // size of data in bytes
     tensor(const std::vector<int>shapeValue, const char* deviceValue): \
                 shape(shapeValue) {
         device = (char*)malloc(4);
@@ -25,9 +25,11 @@ public:
         size = size * sizeof(T);
         if (strcmp(device, "cpu") == 0){
             data = (T*)malloc(size);
+            // memset(data, 0, sizeof(T)*size);
         }
         else if (strcmp(device, "gpu") == 0){
             cudaMalloc(&data, size);
+            // cudaMemset(data, 0, sizeof(T)*size);
         }
     }
     tensor():data(nullptr), device(nullptr), shape(std::vector<int>({0})){}
