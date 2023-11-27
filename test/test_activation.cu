@@ -3,9 +3,9 @@
 #include<cuda_runtime.h>
 #include<iostream>
 #include<random>
-#include "activation_functions/relu.cu"
-#include "activation_functions/sigmoid.cu"
-#include "tensor.cu"
+#include "../activation_functions/relu.cu"
+#include "../activation_functions/sigmoid.cu"
+#include "../tensor.cu"
 
 int main(){
     relu<float> relu_func = relu<float>();
