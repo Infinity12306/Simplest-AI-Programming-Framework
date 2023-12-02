@@ -3,16 +3,32 @@
 
 #include<vector>
 #include<cublas_v2.h>
+#include<random>
 #include "../utils.h"
 #include "../tensor.cu"
 
 template<typename T>
 class fc{
 public:
-    fc():Y(nullptr), dX(nullptr), dW(nullptr){
+    tensor<T> *W;
+
+    fc(int in_feat, int out_feat):Y(nullptr), dX(nullptr), dW(nullptr),
+            f_in(in_feat), f_out(out_feat){
         cublasCreate(&handle);
+        // define W and initialize it
+        W = new tensor<T>(std::vector<int>({f_in, f_out}, "cpu"))
+
+        std::random_device rd;
+        std::mt19937 generator(rd());
+        std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+        for (int w=0; w<f_out; w++)
+            for (int h=0; h<f_in; h++)
+                W[w*f_in + h] = distribution(generator);
     };
+
     ~fc(){
+        if (W != nullptr)
+            delete W;
         if (Y != nullptr){
             delete Y;
             Y = nullptr;
@@ -27,78 +43,83 @@ public:
         }
         cublasDestroy(handle);
     };
-    tensor<T>* forward(tensor<T>* W, tensor<T>* X){
-        // calculate m, k, n
-        // W: (m, k), X: ((bsize,) k (, n))
-        W = W->gpu(), X = X->gpu();
+
+    // X: (*, f_in), W: (f_in, f_out), Y(X_r, f_out)
+    // Y = X * W
+    tensor<T>* forward(tensor<T>* X){
+        // if X is a 1-d vector, turn it into 2d matrix
         int dim_x = X->shape.size();
         if (dim_x == 1){
-            X->shape.push_back(1);
+            X->shape.insert(X->shape.begin(), 1);
             dim_x++;
         }
-        m = W->shape[0], k = W->shape[1], n = X->shape[dim_x - 1];
         fc_X = X, fc_W = W;
+        X_r = X->shape[dim_x - 2];
 
         // initialize Y
         std::vector<int> yShape = X->shape;
-        yShape[dim_x - 2] = m;
+        yShape[dim_x - 1] = f_out;
         Y = new tensor<T>(yShape, "gpu");
 
         // calculate bsize
         int iter_num = 1;
         for (int i=0; i<dim_x-2; i++)
             iter_num *= X->shape[i];
+
         // calculate Y
-        T *X_data = X->gpu()->data, *Y_data = Y->gpu()->data; 
+        T *X_data = X->gpu()->data, *Y_data = Y->gpu()->data;
+        W->gpu(); 
         for (int i=0; i<iter_num; i++){
-            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, m, n, k, &alpha, W->gpu()->data, m, 
-                X_data, k, &beta, Y_data, m);
-            X_data += k * n;
-            Y_data += m * n;
+            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, X_r, f_out, f_in, &alpha, X_data, X_r, 
+                W->data, f_in, &beta, Y_data, X_r);
+            X_data += X_r * f_in;
+            Y_data += X_r * f_out;
         }
         return Y->cpu();
     };
+
     std::vector<tensor<T>*> backward(tensor<T>* dY){
-        dY = dY->gpu();
         tensor<T>* dX = new tensor<T>(fc_X->shape, "gpu");
-        tensor<T>* dW = new tensor<T>(std::vector<int>({m, k}), "gpu");
+        tensor<T>* dW = new tensor<T>(W->shape, "gpu");
+
         // calculate batch size
         int iternum = 1;
         for (int i=0; i<fc_X->shape.size()-2; i++)
             iternum *= fc_X->shape[i];
 
         // calculate dL/dX
-        // size = (bsize, k, n)
+        // size = (*, X_r, f_in)
         T *dY_data = dY->gpu()->data, *dX_data = dX->gpu()->data;
+        W->gpu();
         for (int i=0; i<iternum; i++)
         {
-            cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, k, n, m, &alpha, fc_W->gpu()->data, m, 
-                dY_data, m, &beta, dX_data, k);
+            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, X_r, f_in, f_out, &alpha, dY_data, X_r, 
+                W->data, f_in, &beta, dX_data, X_r);
             dX_data += k*n;
             dY_data += m*n;
         }
 
         // calculate dL/dW
-        // size = (m, k)
-        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, m, k, n, &alpha, dY->data, m, 
-            fc_X->gpu()->data, k, &beta, dW->data, m);
+        // size = (f_in, f_out)
         T *X_data = fc_X->data;
         dY_data = dY->data;
         float alpha_w = 1.0f, beta_w = 1.0f;
-        for (int i=1; i<iternum; i++)
+        for (int i=0; i<iternum; i++)
         {
-            X_data += k*n, dY_data += m*n;
             alpha_w = 1.0f / (i+1);
             beta_w = (float)i / (i+1);
-            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, m, k, n, &alpha_w, dY_data, m, 
-                X_data, k, &beta_w, dW->data, m);
+            X_data += k*n, dY_data += m*n;
+            cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, f_in, f_out, X_r, &alpha_w, X_data, X_r, 
+                dY_data, X_r, &beta_w, dW->data, f_in);
         }
         return std::vector<tensor<T>*>({dW->cpu(), dX->cpu()});
     };
+
 private:
     tensor<T> *Y, *dX, *dW;
     tensor<T> *fc_X, *fc_W;
-    int m, n, k;
+    int X_r;
+    int f_in, f_out;
     const float alpha = 1.0f, beta = 0.0f;
     cublasHandle_t handle;
 };
