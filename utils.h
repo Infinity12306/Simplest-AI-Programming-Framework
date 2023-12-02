@@ -13,14 +13,4 @@ inline int GET_BLOCK_NUM(int n){
         i < (n); \
         i += blockDim.x * gridDim.x)
 
-// #include <cublas_v2.h>
-// cublasHandle_t handle;
-// cublasCreate(&handle);
-
-// #include <curand.h>
-// #include <ctime>
-// curandGenerator_t prng;
-// curandCreateGenerator(&prng, CURAND_RNG_PSEUDO_DEFAULT);
-// curandSetPseudoRandomGeneratorSeed(prng, (unsigned long long)clock());
-
 #endif

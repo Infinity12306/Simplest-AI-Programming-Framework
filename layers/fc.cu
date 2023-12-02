@@ -4,26 +4,26 @@
 #include<vector>
 #include<cublas_v2.h>
 #include<random>
-#include "../utils.h"
 #include "../tensor.cu"
 
 template<typename T>
 class fc{
 public:
     tensor<T> *W;
+    // cublasHandle_t handle;
 
-    fc(int in_feat, int out_feat):Y(nullptr), dX(nullptr), dW(nullptr),
-            f_in(in_feat), f_out(out_feat){
+    fc(int in_feat, int out_feat):W(nullptr), Y(nullptr), dX(nullptr), dW(nullptr),
+            fc_X(nullptr), fc_W(nullptr), f_in(in_feat), f_out(out_feat){
         cublasCreate(&handle);
         // define W and initialize it
-        W = new tensor<T>(std::vector<int>({f_in, f_out}, "cpu"))
+        W = new tensor<T>(std::vector<int>({f_in, f_out}), "cpu");
 
         std::random_device rd;
         std::mt19937 generator(rd());
-        std::uniform_real_distribution<float> distribution(0.0f, 1.0f);
+        std::uniform_real_distribution<T> distribution(0.0f, 1.0f);
         for (int w=0; w<f_out; w++)
             for (int h=0; h<f_in; h++)
-                W[w*f_in + h] = distribution(generator);
+                W->data[w*f_in + h] = distribution(generator);
     };
 
     ~fc(){
@@ -95,8 +95,8 @@ public:
         {
             cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, X_r, f_in, f_out, &alpha, dY_data, X_r, 
                 W->data, f_in, &beta, dX_data, X_r);
-            dX_data += k*n;
-            dY_data += m*n;
+            dX_data += X_r * f_in;
+            dY_data += X_r * f_out;
         }
 
         // calculate dL/dW
@@ -108,9 +108,9 @@ public:
         {
             alpha_w = 1.0f / (i+1);
             beta_w = (float)i / (i+1);
-            X_data += k*n, dY_data += m*n;
             cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, f_in, f_out, X_r, &alpha_w, X_data, X_r, 
                 dY_data, X_r, &beta_w, dW->data, f_in);
+            X_data += X_r*f_in, dY_data += X_r*f_out;
         }
         return std::vector<tensor<T>*>({dW->cpu(), dX->cpu()});
     };
