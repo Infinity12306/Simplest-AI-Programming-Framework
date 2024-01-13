@@ -15,7 +15,7 @@ __global__ void sigmoid_gpu(const T* in, T* out, int n){
 }
 
 template<typename T>
-__global__ void backward_sigmoid(T* out, const GRADTYPE* grad_y, GRADTYPE* grad_x, int n){
+__global__ void backward_sigmoid(const T* out, const GRADTYPE* grad_y, GRADTYPE* grad_x, int n){
     CUDA_KERNEL_LOOP(idx, n){
         grad_x[idx] = grad_y[idx] * out[idx] * (1 - out[idx]);
     }
@@ -35,13 +35,13 @@ public:
         ele_num = h_in->size / sizeof(T);
         sigmoid_gpu<T><<<GET_BLOCK_NUM(ele_num), THREADNUM>>>(
             h_in->gpu()->data, h_out->gpu()->data, ele_num);
-        return h_out->cpu();
+        return h_out;
     };
     tensor<GRADTYPE>* backward(tensor<GRADTYPE>* grad_y){
         grad_x = new tensor<GRADTYPE>(grad_y->shape, "gpu");
         backward_sigmoid<T><<<GET_BLOCK_NUM(ele_num), THREADNUM>>>(
             h_out->gpu()->data, grad_y->gpu()->data, grad_x->gpu()->data, ele_num);
-        return grad_x->cpu();
+        return grad_x;
     };
 
 private:
