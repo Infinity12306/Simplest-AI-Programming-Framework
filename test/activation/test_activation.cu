@@ -4,9 +4,9 @@
 #include <iostream>
 #include <random>
 #include <fstream>
-#include "../activation_functions/relu.cu"
-#include "../activation_functions/sigmoid.cu"
-#include "../tensor.cu"
+#include "../../activation_functions/relu.cu"
+#include "../../activation_functions/sigmoid.cu"
+#include "../../tensor.cu"
 
 int main(){
     std::random_device rd;
@@ -14,6 +14,10 @@ int main(){
     std::uniform_real_distribution<float> dis(0.0, 1.0);
     std::ofstream input_data("X.txt");
     std::ofstream out_grad("Dy.txt");
+    std::ofstream relu_out("relu_Y.txt");
+    std::ofstream relu_dx("relu_Dx.txt");
+    std::ofstream sig_out("sig_Y.txt");
+    std::ofstream sig_dx("sig_Dx.txt");
 
     relu<float> relu_func = relu<float>();
     sigmoid<float> sigmoid_func = sigmoid<float>();
@@ -36,6 +40,7 @@ int main(){
         if (i > 0)
             std::cout << " ";
         std::cout << y->data[i];
+        relu_out << y->data[i] << " "; 
     }
     std::cout << std::endl << std::endl;
 
@@ -64,6 +69,7 @@ int main(){
         if (i > 0)
             std::cout << " ";
         std::cout << grad_x->data[i];
+        relu_dx << grad_x->data[i] << " ";
     }
     std::cout << std::endl << std::endl;
 
@@ -78,6 +84,7 @@ int main(){
         if (i > 0)
             std::cout << " ";
         std::cout << sig_y->data[i];
+        sig_out << sig_y->data[i] << " ";
     }
     std::cout << std::endl << std::endl;
 
@@ -101,6 +108,7 @@ int main(){
         if (i > 0)
             std::cout << " ";
         std::cout << sig_grad_x->data[i];
+        sig_dx << sig_grad_x->data[i] << " ";
     }
     std::cout << std::endl << std::endl;
 

@@ -17,3 +17,5 @@ test/*.txt
 
 readme.txt
 gt.txt
+
+test/*/*.txt

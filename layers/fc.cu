@@ -1,34 +1,31 @@
 #ifndef FC
 #define FC
 
-#include<vector>
-#include<cublas_v2.h>
-#include<random>
+#include <vector>
+#include <cublas_v2.h>
+#include <curand.h>
+#include <random>
+
 #include "../tensor.cu"
+#include "../utils.h"
 
 template<typename T>
 class fc{
 public:
-    tensor<T> *W;
-    // cublasHandle_t handle;
+    tensor<T> *fc_W;
 
-    fc(int in_feat, int out_feat):W(nullptr), Y(nullptr), dX(nullptr), dW(nullptr),
-            fc_X(nullptr), fc_W(nullptr), f_in(in_feat), f_out(out_feat){
-        cublasCreate(&handle);
+    fc(int in_feat, int out_feat, cublasHandle_t handle, curandGenerator_t prng):Y(nullptr), dX(nullptr), dW(nullptr),
+            fc_X(nullptr), fc_W(nullptr), f_in(in_feat), f_out(out_feat), handle(handle), prng(prng){
         // define W and initialize it
-        W = new tensor<T>(std::vector<int>({f_in, f_out}), "cpu");
-
-        std::random_device rd;
-        std::mt19937 generator(rd());
-        std::uniform_real_distribution<T> distribution(0.0f, 1.0f);
-        for (int w=0; w<f_out; w++)
-            for (int h=0; h<f_in; h++)
-                W->data[w*f_in + h] = distribution(generator);
+        fc_W = new tensor<T>(std::vector<int>({f_in, f_out}), "gpu");
+        curandGenerateUniform(prng, fc_W->data, f_in*f_out);
     };
 
     ~fc(){
-        if (W != nullptr)
-            delete W;
+        if (fc_W != nullptr){
+            delete fc_W;
+            fc_W = nullptr;
+        }
         if (Y != nullptr){
             delete Y;
             Y = nullptr;
@@ -41,7 +38,6 @@ public:
             delete dW;
             dW = nullptr;
         }
-        cublasDestroy(handle);
     };
 
     // X: (*, f_in), W: (f_in, f_out), Y(X_r, f_out)
@@ -53,7 +49,7 @@ public:
             X->shape.insert(X->shape.begin(), 1);
             dim_x++;
         }
-        fc_X = X, fc_W = W;
+        fc_X = X;
         X_r = X->shape[dim_x - 2];
 
         // initialize Y
@@ -68,19 +64,20 @@ public:
 
         // calculate Y
         T *X_data = X->gpu()->data, *Y_data = Y->gpu()->data;
-        W->gpu(); 
+        fc_W->gpu(); 
         for (int i=0; i<iter_num; i++){
-            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, X_r, f_out, f_in, &alpha, X_data, X_r, 
-                W->data, f_in, &beta, Y_data, X_r);
+            sgemm_wrapper(handle, X_data, fc_W->data, Y_data, X_r, f_out, f_in);
+            // cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, X_r, f_out, f_in, &alpha, X_data, X_r, 
+            //     fc_W->data, f_in, &beta, Y_data, X_r);
             X_data += X_r * f_in;
             Y_data += X_r * f_out;
         }
-        return Y->cpu();
+        return Y;
     };
 
     std::vector<tensor<T>*> backward(tensor<T>* dY){
         tensor<T>* dX = new tensor<T>(fc_X->shape, "gpu");
-        tensor<T>* dW = new tensor<T>(W->shape, "gpu");
+        tensor<T>* dW = new tensor<T>(fc_W->shape, "gpu");
 
         // calculate batch size
         int iternum = 1;
@@ -90,11 +87,13 @@ public:
         // calculate dL/dX
         // size = (*, X_r, f_in)
         T *dY_data = dY->gpu()->data, *dX_data = dX->gpu()->data;
-        W->gpu();
+        fc_W->gpu();
         for (int i=0; i<iternum; i++)
         {
-            cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, X_r, f_in, f_out, &alpha, dY_data, X_r, 
-                W->data, f_in, &beta, dX_data, X_r);
+            sgemm_wrapper(handle, dY_data, fc_W->data, dX_data, X_r, f_in, f_out, 
+                            alpha, beta, false, true);
+            // cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, X_r, f_in, f_out, &alpha, dY_data, X_r, 
+            //     fc_W->data, f_in, &beta, dX_data, X_r);
             dX_data += X_r * f_in;
             dY_data += X_r * f_out;
         }
@@ -108,20 +107,24 @@ public:
         {
             alpha_w = 1.0f / (i+1);
             beta_w = (float)i / (i+1);
-            cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, f_in, f_out, X_r, &alpha_w, X_data, X_r, 
-                dY_data, X_r, &beta_w, dW->data, f_in);
+            sgemm_wrapper(handle, X_data, dY_data, dW->data, f_in, f_out, X_r, 
+                            alpha_w, beta_w, true, false);
+            // cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, f_in, f_out, X_r, &alpha_w, X_data, X_r, 
+            //     dY_data, X_r, &beta_w, dW->data, f_in);
             X_data += X_r*f_in, dY_data += X_r*f_out;
         }
-        return std::vector<tensor<T>*>({dW->cpu(), dX->cpu()});
+        return std::vector<tensor<T>*>({dW, dX});
     };
 
 private:
     tensor<T> *Y, *dX, *dW;
-    tensor<T> *fc_X, *fc_W;
+    tensor<T> *fc_X;
+    // tensor<T> *fc_X, *fc_W;
     int X_r;
     int f_in, f_out;
     const float alpha = 1.0f, beta = 0.0f;
     cublasHandle_t handle;
+    curandGenerator_t prng;
 };
 
 #endif
