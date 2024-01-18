@@ -120,7 +120,10 @@ public:
         char* deviceValue = (char*)malloc(4);
         strcpy(deviceValue, this->device);
         tensor<T>* output = new tensor<T>(this->shape, deviceValue);
-        memcpy((void*)output->data, (void*)this->data, this->size);
+        if (strcmp(deviceValue, "cpu") == 0)
+            memcpy((void*)output->data, (void*)this->data, this->size);
+        else
+            cudaMemcpy(output->data, this->data, this->size, cudaMemcpyDeviceToDevice);
         return output;
     }
 
@@ -213,11 +216,6 @@ public:
     void f_print(std::ofstream &f_x){
         this->cpu();
         int num = size / sizeof(T);
-        // int r=0, c=shape[shape.size()-1];
-        // if (shape.size() == 1)
-        //     r = 1;
-        // else
-        //     r = shape[shape.size()-2];
         for (int i=0; i<shape.size(); i++)
             f_x << shape[i] << " ";
         f_x << std::endl;

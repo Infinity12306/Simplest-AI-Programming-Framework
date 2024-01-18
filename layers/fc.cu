@@ -12,8 +12,6 @@
 template<typename T>
 class fc{
 public:
-    tensor<T> *fc_W;
-
     fc(int in_feat, int out_feat, cublasHandle_t handle, curandGenerator_t prng):Y(nullptr), dX(nullptr), dW(nullptr),
             fc_X(nullptr), fc_W(nullptr), f_in(in_feat), f_out(out_feat), handle(handle), prng(prng){
         // define W and initialize it
@@ -66,9 +64,7 @@ public:
         T *X_data = X->gpu()->data, *Y_data = Y->gpu()->data;
         fc_W->gpu(); 
         for (int i=0; i<iter_num; i++){
-            sgemm_wrapper(handle, X_data, fc_W->data, Y_data, X_r, f_out, f_in);
-            // cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, X_r, f_out, f_in, &alpha, X_data, X_r, 
-            //     fc_W->data, f_in, &beta, Y_data, X_r);
+            sgemm_wrapper<T>(handle, X_data, fc_W->data, Y_data, X_r, f_out, f_in);
             X_data += X_r * f_in;
             Y_data += X_r * f_out;
         }
@@ -90,10 +86,8 @@ public:
         fc_W->gpu();
         for (int i=0; i<iternum; i++)
         {
-            sgemm_wrapper(handle, dY_data, fc_W->data, dX_data, X_r, f_in, f_out, 
+            sgemm_wrapper<T>(handle, dY_data, fc_W->data, dX_data, X_r, f_in, f_out, 
                             alpha, beta, false, true);
-            // cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T, X_r, f_in, f_out, &alpha, dY_data, X_r, 
-            //     fc_W->data, f_in, &beta, dX_data, X_r);
             dX_data += X_r * f_in;
             dY_data += X_r * f_out;
         }
@@ -105,21 +99,26 @@ public:
         float alpha_w = 1.0f, beta_w = 1.0f;
         for (int i=0; i<iternum; i++)
         {
-            alpha_w = 1.0f / (i+1);
-            beta_w = (float)i / (i+1);
-            sgemm_wrapper(handle, X_data, dY_data, dW->data, f_in, f_out, X_r, 
+            // alpha_w = 1.0f / (i+1);
+            // beta_w = (float)i / (i+1);
+            sgemm_wrapper<T>(handle, X_data, dY_data, dW->data, f_in, f_out, X_r, 
                             alpha_w, beta_w, true, false);
-            // cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N, f_in, f_out, X_r, &alpha_w, X_data, X_r, 
-            //     dY_data, X_r, &beta_w, dW->data, f_in);
             X_data += X_r*f_in, dY_data += X_r*f_out;
         }
-        return std::vector<tensor<T>*>({dW, dX});
+        return std::vector<tensor<T>*>({dX, dW});
     };
+
+    tensor<T>* get_w(){
+        return fc_W;
+    }
+
+    tensor<T>* get_dw(){
+        return dW;
+    }
 
 private:
     tensor<T> *Y, *dX, *dW;
-    tensor<T> *fc_X;
-    // tensor<T> *fc_X, *fc_W;
+    tensor<T> *fc_X, *fc_W;
     int X_r;
     int f_in, f_out;
     const float alpha = 1.0f, beta = 0.0f;
